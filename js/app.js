@@ -51,8 +51,7 @@ signup.addEventListener("click", function(){
 		console.log(xhr.status);
 		if(xhr.readyState == 4 && xhr.status == 200 ){
 			response_signup = xhr.responseText;
-			console.log("internal: "+response_signup);
-			console.log("check response: "+response_signup);
+			console.log("response_signup: "+response_signup);
 			
 			if(response_signup.toString() === "success"){
 				alert("Sign up success");
@@ -78,6 +77,14 @@ var my_id = document.getElementById("my_id");
 var my_pw = document.getElementById("my_password");
 
 var response_signin;
+
+//encrypt
+var keySize = 128;
+var iterations = iterationCount = 100;
+var iv = "F27D5C9927726BCEFE7510B1BDD3D137";
+var salt = "3FF2EC019C627B945225DEBAD71A01B6985FE84C95A70EB132882F88C0A59A55";
+var passPhrase = "passPhrase passPhrase aes encoding algorithm";
+
 var signin = document.querySelector("#signin");
 signin.addEventListener("click", function(){
 	var myidvalue = my_id.value;
@@ -87,27 +94,57 @@ signin.addEventListener("click", function(){
 	console.log("my_id: "+myidvalue);
 	console.log("my_pw: "+mypwvalue);
 	
-	post("http://117.17.158.192:8200/Servlet/servers", {"type":"sign in", "id": myidvalue.toString(), "pw": mypwvalue.toString()});
+	// encrypt
+    var aesUtil = new AesUtil(keySize, iterationCount);
+    var encrypt = aesUtil.encrypt(salt, iv, passPhrase, mypwvalue);
+	console.log("encrypt: "+encrypt);
 	
+	post("http://117.17.158.192:8200/Servlet/servers", {"type":"sign in", "id": myidvalue.toString(), "pw": encrypt.toString()});
+	
+	// decrypt
+    aesUtil = new AesUtil(keySize, iterationCount)
+    var decrypt = aesUtil.decrypt(salt, iv, passPhrase, encrypt);
+    console.log("decrypt: "+decrypt);
+    
 	xhr.onreadystatechange = function(e){
 		console.log(xhr.status);
 		if(xhr.readyState == 4 && xhr.status == 200 ){
 			response_signin = xhr.responseText;
-			console.log("internal: "+response_signin);
-			console.log("check response: "+response_signin);
+			console.log("response_signin: "+response_signin);
 			
-			if(response_signin.toString() === "can't search id"){
-				alert("This id doesn't exist");
+			if(response_signin.toString() === "failed"){
+				alert("sign in failure");
 				document.addjoin.my_id.focus();
 			}else if(response_signin.toString() === "success"){
 				alert("Sign in success");
 				setLocalStorage();
 				sendMessage("init,"+my_id.value.toString()+",0");
 				displayQR();
+			}else{
+				var encryptsecret = xhr.responseText;
+				
+			    aesUtil = new AesUtil(keySize, iterationCount);
+			    var decryptsecret = aesUtil.decrypt(salt, iv, passPhrase, encryptsecret);
+			    
+				var secretlist = decryptsecret.split(",");
+				console.log("secretlist: "+secretlist);
+				var op1 = secretlist[0];
+				var date = new Date();
+				var op2 = date.getSeconds();
+				
+				console.log("op1: "+op1+", op2: "+op2);
+				op1int = Number(op1);
+				op2int = Number(op2);
+				var result = op1int + op2int;
+				console.log("result: "+result);
+				
+				// encrypt again
+				aesUtil = new AesUtil(keySize, iterationCount);
+			    var encryptresult = aesUtil.encrypt(salt, iv, passPhrase, result.toString());
+				post("http://117.17.158.192:8200/Servlet/servers", {"type":"response", "key": encryptresult.toString()});
 			}
 		}
 	};
-
 });
 
 function validateID(myidvalue, mypwvalue){
@@ -300,7 +337,9 @@ webSocket.onmessage = function(evt)
   if(evt.data.toString() == "open the door"){
 	  displayAlarm(evt.data);
   }else if(evt.data.toString() == my_id.value.toString()+"DB REGISTER"){
-	  console.log("check evt.data: "+evt.data.toString());
+	  console.log("ignored signal"); 
+  }else if(evt.data.toString() == "failed"){
+	  displayAlarm("fail to open the door");
   }else{
 	  var kiu = evt.data.toString().split(","); // key, id, unique#
 	  console.log("kiu: "+kiu);
@@ -348,7 +387,11 @@ function check(kiu){
 			}else{
 				sendMessage("client_fail,"+my_id.value.toString()+",0");
 			}
+		}else{
+			sendMessage("client_fail,"+my_id.value.toString()+",0");
 		}
+	}else{
+		sendMessage("client_fail,"+my_id.value.toString()+",0");
 	}
 }
 
@@ -393,7 +436,7 @@ function setLocalStorage(){
 	var flag = document.getElementById("idsave-checkbox").checked;
 	console.log("flag: "+flag);
 	if(flag){
-		localStorage.setItem("idsave", 'hello');
+		localStorage.setItem("idsave", my_id.value);
 
 	}else{
 		localStorage.removeItem("idsave");
